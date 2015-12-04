@@ -1,0 +1,294 @@
+api-spec: mist-api
+root: MistClient
+config_path: "mist"
+
+entities:
+    MistClient:
+      attributes:
+        - Authorization
+      parameters:
+        uri:
+          $default: "https://mist.io"
+        email:
+          $type: string
+        password:
+          $ref: psw
+          $type: string
+        Authorization:
+          $ref: api_token
+          $type: string
+        save_config:
+          $type: boolean
+          $default: False
+      init:
+        - case:
+            $if:
+              save_config:
+                $eq: True
+              Authorization:
+                $set_from_config: Authorization
+        - case:
+            $if:
+              email:
+                $exists: True
+              password:
+                $exists: True
+            action: check_auth
+            response:
+              api_token:
+                $set: Authorization
+                # $ask_to_save: Authorization
+        - case:
+            $if:
+              api_token:
+                $exists: True
+            action:
+              api_token:
+                $set: _Authorization
+      _properties:
+        providers:
+          action: list_supported_providers
+          response:
+            supported_providers:
+              $set: providers
+      methods:
+        clouds:
+          action: list_clouds
+          parameters:
+            query:
+              $type: string
+            name:
+              $type: string
+            id:
+              $type: string
+            provider:
+              $type: string
+          response:
+            $filter:
+              - name
+              - id
+              - provider
+            $search: query
+            $items:
+              $entity: Cloud
+        add_key:
+          action: add_key
+          parameters:
+            id:
+              $type: string
+              $ref: key_name
+            priv:
+              $type: string
+              $ref: private
+        generate_key:
+          action: generate_keypair
+        keys:
+          action: list_keys
+          response:
+            $items:
+              $entity: Key
+        add_cloud:
+          action: add_cloud
+          switch:
+            - case:
+                $if:
+                  provider:
+                    $eq: ec2
+                  api_key:
+                    $exists: True
+                  api_secret:
+                    $exists: True
+                  region:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: rackspace
+                  username:
+                    $exists: True
+                  api_key:
+                    $exists: True
+                  region:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: nephoscale
+                  username:
+                    $exists: True
+                  password:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: softlayer
+                  username:
+                    $exists: True
+                  api_key:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: digitalocean
+                  token:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: gce
+                  email:
+                    $exists: True
+                  private_key:
+                    $exists: True
+                  project_id:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: azure
+                  subscription_id:
+                    $exists: True
+                  certificate:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: linode
+                  api_key:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: bare_metal
+                  machine_ip:
+                    $exists: True
+                  machine_key:
+                    $exists: True
+                  machine_user:
+                    $exists: True
+                  machine_port:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: vcloud
+                  username:
+                    $exists: True
+                  password:
+                    $exists: True
+                  organization:
+                    $exists: True
+                  host:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: docker
+                  docker_port:
+                    $exists: True
+                  docker_host:
+                    $exists: True
+                  auth_user:
+                    $exists: True
+                  auth_password:
+                    $exists: True
+                  key_file:
+                    $exists: True
+                  cert_file:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: libvirt
+                  machine_hostname:
+                    $exists: True
+                  machine_user:
+                    $exists: True
+                  machine_key:
+                    $exists: True
+            - case:
+                $if:
+                  provider:
+                    $eq: openstack
+                  username:
+                    $exists: True
+                  password:
+                    $exists: True
+                  auth_url:
+                    $exists: True
+                  tenant_name:
+                    $exists: True
+                  region:
+                    $exists: True
+                  compute_endpoint:
+                    $exists: True
+          parameters:
+            provider:
+              $type: string
+            title:
+              $type: string
+            region:
+              $type: string
+            username:
+              $type: string
+            api_key:
+              $type: string
+          response:
+            $entity: Cloud
+    Key:
+      attributes:
+        - Authorization
+        - key
+        - isDefault
+        - machines
+      parameters:
+        key:
+          $type: string
+          $ref: id
+      prepare:
+        - step:
+            action: get_private_key
+            response:
+              body:
+                $set: private
+        - step:
+            action: get_public_key
+            response:
+              body:
+                $set: public
+      methods:
+        rename:
+          action: edit_key
+          parameters:
+            new_id:
+              type: string
+            key:
+              type: string
+    Cloud:
+      attributes:
+        - Authorization
+        - cloud
+      parameters:
+        cloud:
+          $ref: id
+        Authorization:
+          $type: string
+      _properties:
+        sizes:
+          action: list_sizes
+          response:
+            $body:
+              $set: sizes
+        images:
+          action: list_images
+          response:
+            $body:
+              $set: images
+      methods:
+        rename:
+          action: rename_cloud
+          parameters:
+            new_name:
+              $type: string
+        delete:
+          action: delete_cloud
