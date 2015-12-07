@@ -35,7 +35,7 @@ entities:
                 $exists: True
             action: check_auth
             response:
-              api_token:
+              token:
                 $set: Authorization
                 # $ask_to_save: Authorization
         - case:
@@ -87,6 +87,35 @@ entities:
           response:
             $items:
               $entity: Key
+        scripts:
+          action: list_scripts
+          parameters:
+            id:
+              $type: string
+            search:
+              $type: string
+          response:
+            $filter:
+              - id
+            $search: search
+        machines:
+          action: list_machines
+          parameters:
+            id:
+              $type: string
+            name:
+              $type: string
+            search:
+              $type: string
+          response:
+            $filter:
+              - id
+              - name
+            $search: search
+        add_script:
+          action: add_script
+        run_script:
+          action: run_script
         add_cloud:
           action: add_cloud
           switch:
@@ -245,17 +274,17 @@ entities:
         key:
           $type: string
           $ref: id
-      prepare:
-        - step:
-            action: get_private_key
-            response:
-              body:
-                $set: private
-        - step:
-            action: get_public_key
-            response:
-              body:
-                $set: public
+      _properties:
+        private:
+          action: get_private_key
+          response:
+            body:
+              $set: private
+        public:
+          action: get_public_key
+          response:
+            body:
+              $set: public
       methods:
         rename:
           action: edit_key
@@ -264,6 +293,17 @@ entities:
               type: string
             key:
               type: string
+        set_default:
+          action: set_default_key
+        delete:
+          action: delete_key
+        associate_to_machine:
+          action: associate_key
+          parameters:
+            machine:
+              $type: string
+            cloud:
+              $type: string
     Cloud:
       attributes:
         - Authorization
@@ -279,11 +319,22 @@ entities:
           response:
             $body:
               $set: sizes
+        locations:
+          action: list_locations
+          response:
+            $body:
+              $set: locations
         images:
           action: list_images
           response:
             $body:
               $set: images
+        networks:
+          action: list_networks
+          response:
+            $body:
+              $set: networks
+
       methods:
         rename:
           action: rename_cloud
@@ -292,3 +343,128 @@ entities:
               $type: string
         delete:
           action: delete_cloud
+        enable:
+          action: toggle_cloud
+          parameters:
+            new_state:
+              $default: "1"
+        disable:
+          action: toggle_cloud
+          parameters:
+            new_state:
+              $default: "0"
+        search_image:
+          action: list_images
+          parameters:
+            search_term:
+              $type: string
+          response:
+            $search: search_term
+        machines:
+          action: list_machines
+          parameters:
+            id:
+              $type: string
+            name:
+              $type: string
+            search:
+              $type: string
+          response:
+            $filter:
+              - id
+              - name
+            $search: search
+            $items:
+              $entity: Machine
+        create_machine:
+          action: create_machine
+    Machine:
+      attributes:
+        - Authorization
+        - cloud
+        - machine
+        - public_ips
+      parameters:
+        machine:
+          $ref: id
+      _properties:
+         available_metrics:
+            action: find_metrics
+            response:
+              $body:
+                $set: available_metrics
+      methods:
+        reboot:
+          action: machine_actions
+          parameters:
+            action: reboot
+        start:
+          action: machine_actions
+          parameters:
+            action: start
+        stop:
+          action: machine_actions
+          parameters:
+            action: stop
+        destroy:
+          action: machine_actions
+          parameters:
+            action: destroy
+        probe:
+          action: probe
+          parameters:
+            host:
+              $ref: public_ips
+        associate_key:
+          action: associate_key
+        enable_monitoring:
+          action: update_monitoring        
+          parameters:
+            action:
+              $default: enable
+            no_ssh:
+              $default: False
+        disable_monitoring:
+          action: update_monitoring        
+          parameters:
+            action:
+              $default: disable
+            no_ssh:
+              $default: False
+        get_stats:
+          action: get_stats
+          parameters:
+            start:
+              $type: integer
+            stop:
+              $type: integer
+            step:
+              $default: 10
+            v:
+              $default: 2
+        add_metric:
+          action: assoc_metric
+          parameters:
+            metric_id:
+              $required: True
+        remove_metric:
+          action: disassoc_metric
+          parameters:
+            metric_id:
+              $required: True
+        add_python_plugin:
+          action: deploy_plugin
+          parameters:
+            plugin:
+              $ref: name
+            host:
+              $ref: public_ips
+            read_function:
+              $file: python_file
+        tag:
+          action: set_machine_tag
+          parameters:
+            tag:
+              $type: string
+            value:
+              $type: string

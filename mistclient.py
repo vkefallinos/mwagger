@@ -7,15 +7,16 @@ from dateutil.parser import parse as dateparser
 # swaggerjs = yaml.load(open("mist-api.yaml").read())
 # model = yaml.load(open("client-model.yaml").read())
 import responses
-import inspect
 
 class Swagger(object):
 
     def __init__(self, swagger):
         self.basePath = swagger["basePath"]
         self.host = swagger["host"]
-        self.uri = swagger["host"] + swagger["basePath"]
         self.scheme = swagger.get("schemes", ["http"])[0]
+        self.uri = self.scheme+"://"+swagger["host"] 
+        if swagger["basePath"] != "/":
+            self.uri += swagger["basePath"]
         self.securityHeaders = []
         self.paths = paths = swagger["paths"]
         self.definitions = swagger.get("definitions", {})
@@ -25,31 +26,31 @@ class Swagger(object):
                     if swagger["securityDefinitions"][sec]["in"] == "header":
                         name = swagger["securityDefinitions"][sec]["name"]
                         self.securityHeaders.append(name)
+
+        print self.securityHeaders
         for path in paths:
             for method in paths[path]:
                 opid = paths[path][method]["operationId"]
-                setattr(self, opid, ApiRequest(path, method, paths[path][
+                setattr(self, opid, ApiRequest(self.uri+path, method, paths[path][
                         method], self.definitions, self.securityHeaders))
 
 
 class ApiRequest(object):
 
-    def __init__(self, path, method, data, definitions, default_params=None,
-                 security=None):
-        if default_params is None:
-            default_params = {}
-        if security is None:
-            security = {}
+    def __init__(self, path, method, data, definitions,security=None):
+
+        if security == None:
+            security = []
 
         self.path = path
         self.method = method
         self.data = data
         self.header_params = []
         self.path_params = []
+        self.query_params = []
         self.body_params = []
         self.required_params = []
         self.parameters = []
-        self.default_params = default_params
         self.id = data["operationId"]
         if data.get("parameters"):
             for param in data["parameters"]:
@@ -60,6 +61,11 @@ class ApiRequest(object):
                     if param.get("required"):
                         self.required_params.append(name)
                     self.header_params.append(name)
+                if place == "query":
+                    self.parameters.append(name)
+                    if param.get("required"):
+                        self.required_params.append(name)
+                    self.query_params.append(name)
                 if place == "path":
                     self.parameters.append(name)
                     self.required_params.append(name)
@@ -80,19 +86,40 @@ class ApiRequest(object):
         if data.get("security") == {}:
             pass
         else:
-            self.parameters.append(security)
+            self.header_params.extend(security)
+            self.parameters.extend(security)
             self.required_params.extend(security)
 
     def __call__(self, *args, **kwargs):
+        headers = {}
+        data = {}
+        query = {}
         for p in self.required_params:
             if not kwargs.get(p):
                 raise Exception("Parameter {0} missing".format(p))
-        print self.method, self.path.format(*args, **kwargs), self.id, kwargs
-        try:
-            return getattr(responses, self.id)
-        except:
-            return {"error": "not_implemented"}
+        for h in self.header_params:
+            if kwargs.get(h):
+                headers[h] = kwargs[h]
+        for d in self.body_params:
+            if kwargs.get(d):
+                data[d]=kwargs[d]
+        for q in self.query_params:
+            if kwargs.get(q):
+                query[q]=kwargs[q]
 
+        uri = self.path.format(*args, **kwargs)
+        print self.header_params
+        print self.method, uri, "params:",query, "headers:",headers,"data:",data
+        print kwargs
+        response = requests.request(self.method, uri, params=query, headers=headers, data=json.dumps(data),verify=False)
+        print response.content
+        if response.ok:
+            try:
+                return response.json()
+            except:
+                return {"response":response.content}
+        else:
+            raise Exception(response.content)
 
 class Helpers(object):
 
@@ -103,17 +130,31 @@ class Helpers(object):
         types = {
             str: "string",
             int: "integer",
-            bool: "boolean"
+            bool: "boolean",
+            unicode: "string"
         }
         param = kwargs.get(param_name)
         if param:
-            if types[type(param)] == param_type:
+            print param
+            if types.get(type(param)) == param_type:
                 return kwargs
             else:
                 problem = "Parameter {0} should be of type {1}".format(
                     param_name,
                     param_type)
                 raise Exception(problem)
+        return kwargs
+    def _file(self,param_name,input_name,**kwargs):
+        file_path = kwargs.get(input_name)
+        if file_path:
+            if not os.path.isfile(file_path):
+                raise Exception(file_path, "is not a file or could not be found in tho given path")
+            
+            with open(file_path) as f:
+                opened_file = f.read()
+            
+            kwargs.pop(input_name)
+            kwargs[param_name] = opened_file
         return kwargs
 
     def _ref(self, param_name, input_name, **kwargs):
@@ -402,6 +443,11 @@ class Client(object):
             if ent != self.root:
                 entcls = Client.__call__(self, ent)
                 setattr(cls, "__" + ent, entcls)
+        for ent in self.model["entities"]:
+            if ent != self.root:
+                entcls = getattr(cls, "__" + ent)
+                setattr(cls, "__" + ent, entcls)
+
         return cls
 
 action_order = ["$filter","$search","$items"]
