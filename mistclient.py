@@ -1,12 +1,14 @@
-# from test_model import *s
 import json
 import os
 import requests
 import yaml
-from dateutil.parser import parse as dateparser
-# swaggerjs = yaml.load(open("mist-api.yaml").read())
-# model = yaml.load(open("client-model.yaml").read())
-import responses
+
+action_order = ["$filter", "$search", "$items"]
+
+
+class Entities():
+    pass
+
 
 class Swagger(object):
 
@@ -14,7 +16,7 @@ class Swagger(object):
         self.basePath = swagger["basePath"]
         self.host = swagger["host"]
         self.scheme = swagger.get("schemes", ["http"])[0]
-        self.uri = self.scheme+"://"+swagger["host"] 
+        self.uri = self.scheme + "://" + swagger["host"]
         if swagger["basePath"] != "/":
             self.uri += swagger["basePath"]
         self.securityHeaders = []
@@ -27,19 +29,20 @@ class Swagger(object):
                         name = swagger["securityDefinitions"][sec]["name"]
                         self.securityHeaders.append(name)
 
-        print self.securityHeaders
         for path in paths:
             for method in paths[path]:
                 opid = paths[path][method]["operationId"]
-                setattr(self, opid, ApiRequest(self.uri+path, method, paths[path][
-                        method], self.definitions, self.securityHeaders))
+                setattr(self, opid, ApiRequest(self.uri + path, method,
+                                               paths[path][method],
+                                               self.definitions,
+                                               self.securityHeaders))
 
 
 class ApiRequest(object):
 
-    def __init__(self, path, method, data, definitions,security=None):
+    def __init__(self, path, method, data, definitions, security=None):
 
-        if security == None:
+        if security is None:
             security = []
 
         self.path = path
@@ -76,7 +79,6 @@ class ApiRequest(object):
                             param["schema"]["$ref"].split("/")[2]]
                     else:
                         body_params = param["schema"]
-                    properties = body_params["properties"]
                     required = body_params.get("required", [])
                     for p in body_params["properties"]:
                         self.parameters.append(name)
@@ -102,24 +104,23 @@ class ApiRequest(object):
                 headers[h] = kwargs[h]
         for d in self.body_params:
             if kwargs.get(d):
-                data[d]=kwargs[d]
+                data[d] = kwargs[d]
         for q in self.query_params:
             if kwargs.get(q):
-                query[q]=kwargs[q]
+                query[q] = kwargs[q]
 
         uri = self.path.format(*args, **kwargs)
-        print self.header_params
-        print self.method, uri, "params:",query, "headers:",headers,"data:",data
-        print kwargs
-        response = requests.request(self.method, uri, params=query, headers=headers, data=json.dumps(data),verify=False)
-        print response.content
+        response = requests.request(
+            self.method, uri, params=query, headers=headers,
+            data=json.dumps(data), verify=False)
         if response.ok:
             try:
                 return response.json()
             except:
-                return {"response":response.content}
+                return {"response": response.content}
         else:
             raise Exception(response.content)
+
 
 class Helpers(object):
 
@@ -135,7 +136,6 @@ class Helpers(object):
         }
         param = kwargs.get(param_name)
         if param:
-            print param
             if types.get(type(param)) == param_type:
                 return kwargs
             else:
@@ -144,23 +144,39 @@ class Helpers(object):
                     param_type)
                 raise Exception(problem)
         return kwargs
-    def _file(self,param_name,input_name,**kwargs):
+
+    def _file(self, param_name, input_name, **kwargs):
         file_path = kwargs.get(input_name)
         if file_path:
             if not os.path.isfile(file_path):
-                raise Exception(file_path, "is not a file or could not be found in tho given path")
-            
+                raise Exception(
+                    file_path, "is not a file or could not be found in the\
+                                given path")
+
             with open(file_path) as f:
                 opened_file = f.read()
-            
+
             kwargs.pop(input_name)
             kwargs[param_name] = opened_file
         return kwargs
 
     def _ref(self, param_name, input_name, **kwargs):
+        if input_name == "$body":
+            kwargs[param_name] = kwargs
+            return kwargs
+
         input_value = kwargs.get(input_name)
+
         if input_value:
             kwargs[param_name] = input_value
+            kwargs.pop(input_name)
+            return kwargs
+        return kwargs
+
+    def _ref_first(self, param_name, input_name, **kwargs):
+        input_value = kwargs.get(input_name)
+        if input_value and isinstance(input_value, list):
+            kwargs[param_name] = input_value[0]
             kwargs.pop(input_name)
             return kwargs
         return kwargs
@@ -181,7 +197,6 @@ class Helpers(object):
         return False
 
     def _set(self, input_name, property_name, **kwargs):
-        # print"set ",input_name,property_name
         if kwargs.get("$response"):
             kwargs = kwargs["$response"]
         if input_name == "$body":
@@ -201,7 +216,8 @@ class Helpers(object):
         if param and param == value:
             return True
         return False
-    def _required(self,param_name,value,**kwargs):
+
+    def _required(self, param_name, value, **kwargs):
         if kwargs.get(param_name):
             return kwargs
         problem = "Parameter {0} is required".format(param_name)
@@ -211,122 +227,115 @@ class Helpers(object):
         for case in cases:
             if self._check_case(case["case"], **kwargs):
                 return case
-        valid_cases = json.dumps(cases, sort_keys=True, indent=4, separators=(',', ': '))
+        valid_cases = json.dumps(
+            cases, sort_keys=True, indent=4, separators=(',', ': '))
         problem = "Every `case` in `init` was found invalid."
         problem += "Valid cases are: {0}".format(valid_cases)
         raise Exception(problem)
 
-    def _init(self, case, **kwargs):
-        # print"initing case",case
-        action = case.get("action", None)
-        # printaction
-        response_schema = case.get("response", {})
-        if type(action) == str:
+    def _init(self, _case, **kwargs):
+        action = _case.get("action", None)
+        for attr in self._attributes:
+            if hasattr(self, attr):
+                kwargs[attr] = getattr(self, attr)
+        response_schema = _case.get("response", {})
+        if isinstance(action, basestring):
             funcact = getattr(self._spec, action)
-            # printfuncact.parameters
             response = funcact(**kwargs)
             for param_name in response_schema:
                 schema = response_schema[param_name]
-                if type(response) == list:
+                if isinstance(response, (list, basestring)):
                     response = {"$response": response}
                 for action in schema:
-                    if not self._run(action, param_name, schema[action], **response):
+                    if not self._run(action, param_name, schema[action],
+                                     **response):
                         problem = "Action {0} with parameters {1},{2} failed to\
                                    execute!".format(action, param_name,
                                                     schema[action])
                         raise Exception(problem)
             return True
-        elif type(action) == list:
+        elif isinstance(action, list):
             pass
-        elif type(action) == dict:
+        elif isinstance(action, dict):
             pass
         else:
             return True
-            # problem = "Every `case` in `init` property must? have an action"
-            # raise Exception(problem)
 
-    def _call_api(self, api_call, **kwargs):
-        pass
-
-    def _call_api_set(param_name, api_call, **kwargs):
-        pass
-
-    def _set_from_config(self, property_name, config_key, **kwargs):
-        if self._config.get(config_key):
-            setattr(self, property_name, self._config[config_key])
+    def _set_from_config(self, _property_name, _config_key, **kwargs):
+        if self._config.get(_config_key):
+            setattr(self, _property_name, self._config[_config_key])
             return True
         return False
 
-    def _filter(self, keys, response, **kwargs):
-        for key in keys:
+    def _filter(self, _keys, _response, **kwargs):
+        for key in _keys:
             query = kwargs.get(key)
             if query:
-                return [item for item in response if item.get(key) == query]
-        return response
+                return [item for item in _response if item.get(key) == query]
+        return _response
 
     def _search(self, _search_query, _response, **kwargs):
-        
+
         value = kwargs.get(_search_query)
         if not value:
             return _response
         answer = []
         for item in _response:
-            if type(item) == str:
+            if isinstance(item, basestring):
                 item = _response[item]
             stritem = json.dumps(item)
             if value in stritem:
                 answer.append(item)
         return answer
-    def _items(self,items,response, **kwargs):
+
+    def _items(self, _items, _response, **kwargs):
         answer = []
-        for action in items:
-            for item in response:
-                item = self._run(action, items[action], item, **kwargs)
+        for action in _items:
+            for item in _response:
+                item = self._run(action, _items[action], item, **kwargs)
                 answer.append(item)
         return answer
-    def _entity(self, item, data, **kwargs):
-        print data , kwargs
-        ent = getattr(self, "__"+item)
-        print ent._attributes
+
+    def _entity(self, _item, _data, **kwargs):
+        ent = getattr(Entities, _item)
         for attr in ent._attributes:
-            if not data.get(attr):
-                if hasattr(self,attr):
-                    data[attr] = getattr(self,attr)
+            if not _data.get(attr):
+                if hasattr(self, attr):
+                    _data[attr] = getattr(self, attr)
                 elif kwargs.get(attr):
-                    data[attr]=kwargs[attr]
+                    _data[attr] = kwargs[attr]
 
-        return getattr(self, "__"+item)(**data)
+        return ent(**_data)
 
-    def _check_case(self, case, **kwargs):
-        case = case.get('$if')
+    def _check_case(self, _case, **kwargs):
+        case = _case.get('$if')
 
         if case:
-            # print"checking case..", case
             for param in case:
                 for check in case[param]:
                     valid = self._run(check, param, case[
                                       param][check], **kwargs)
                     if not valid:
-                        # print"not valid", check, param, case[param][check]
                         return False
             return True
         else:
             return True
 
-    def _run(self, helper, parent, value, **kwargs):
-        if helper.startswith("$"):
-            return getattr(self, helper.replace("$", "_"))(parent, value, **kwargs)
+    def _run(self, _helper, _parent, _value, **kwargs):
+        if _helper.startswith("$"):
+            return getattr(self, _helper.replace("$", "_"))(_parent, _value,
+                                                            **kwargs)
 
 
 class Client(object):
 
-    def __init__(self, url, basePath="api", modelName="model"):
-        modelurl = "{0}/{1}/{2}.yaml".format(url, basePath, modelName)
+    def __init__(self, url, basepath="api", modelname="model"):
+        modelurl = "{0}/{1}/{2}.yaml".format(url, basepath, modelname)
         response = requests.get(modelurl)
         self.model = yaml.load(response.content)
         self.root = self.model.get("root")
         api_spec = self.model.get("api-spec")
-        specurl = "{0}/{1}/{2}.yaml".format(url, basePath, api_spec)
+        specurl = "{0}/{1}/{2}.yaml".format(url, basepath, api_spec)
         response = requests.get(specurl)
         self.spec = Swagger(yaml.load(response.content))
         if self.model.get("config_path"):
@@ -344,8 +353,7 @@ class Client(object):
             self.__config_path = ""
 
     def __call__(self, entity=None):
-        # print"creating entity:",entity
-        if entity == None:
+        if entity is None:
             entity = self.root
             Entity = self.model["entities"][entity]
         else:
@@ -353,36 +361,33 @@ class Client(object):
         parameters = Entity.get("parameters", {})
         init_cases = Entity.get("init")
         properties = Entity.get("_properties")
-        attributes = Entity.get("attributes",[])
+        attributes = Entity.get("attributes", [])
         prepare_steps = Entity.get("prepare")
-        action = Entity.get("action")
         methods = Entity.get("methods", {})
-        response = Entity.get("response")
-        cls = type(entity, (Helpers, object), {})
         config = self.__config
         config_path = self.__config_path
         spec = self.spec
-        setattr(cls, "_parameters",parameters)
-        setattr(cls, "_attributes",attributes)
-        setattr(cls, "_config",config)
-        setattr(cls, "_config_path",config_path)
-        setattr(cls, "_spec", spec)
-        setattr(cls, "_init_cases",init_cases)
-        setattr(cls, "_prepare_steps",prepare_steps)
+        tempent = {}
+        tempent["_parameters"] = parameters
+        tempent["_attributes"] = attributes
+        tempent["_config"] = config
+        tempent["_config_path"] = config_path
+        tempent["_spec"] = spec
+        tempent["_init_cases"] = init_cases
+        tempent["_prepare_steps"] = prepare_steps
+        cls = type(entity, (Helpers, object), tempent)
+
         def init(self, entity=Entity, **kwargs):
-            # printkwargs
             parameters = self._parameters
             for param_name in parameters:
                 for action in parameters[param_name]:
                     value = parameters[param_name][action]
-                    # printkwargs, action, param_name, value
                     kwargs = self._run(action, param_name, value, **kwargs)
             for p in attributes:
                 value = kwargs.get(p)
                 if value:
-                    setattr(self,p,value)
+                    setattr(self, p, value)
             if self._init_cases:
-                # print"getting cases"
                 case = self._get_valid_case(init_cases, **kwargs)
                 self._init(case["case"], **kwargs)
             if self._prepare_steps:
@@ -392,7 +397,8 @@ class Client(object):
 
         setattr(cls, "__init__", init)
         if properties:
-            setattr(cls, "_properties",properties)
+            setattr(cls, "_properties", properties)
+
             def _getattr_(self, name):
                 try:
                     return object.__getattribute__(self, name)
@@ -406,13 +412,15 @@ class Client(object):
         for method_name in methods:
             method = methods[method_name]
 
-            def decorated_method(self, method=method, name=method_name, *args, **kwargs):
+            def decorated_method(self, _method=method, _name=method_name,
+                                 *args, **kwargs):
+                method = _method
                 action = method.get("action")
                 parameters = method.get("parameters", {})
                 switch_cases = method.get("switch")
                 response_schema = method.get("response", {})
                 for attr in self._attributes:
-                    kwargs[attr] = getattr(self,attr)
+                    kwargs[attr] = getattr(self, attr)
                 for param_name in parameters:
                     for act in parameters[param_name]:
                         value = parameters[param_name][act]
@@ -422,18 +430,18 @@ class Client(object):
                     if case.get("action"):
                         self._init(case, **kwargs)
                 funcact = getattr(self._spec, action)
-                
                 response = funcact(**kwargs)
                 for act in action_order:
                     if act in response_schema:
-                        print act,response_schema[act]
-                        response = self._run(act,response_schema[act],response ,**kwargs)
-                        
+                        response = self._run(act, response_schema[
+                                             act], response, **kwargs)
+
                 for act in response_schema:
                     if not act.startswith("$"):
                         for act2 in response_schema[act]:
-                            self.run(act2,act,response[act][act2],**response)
-                return response            
+                            self.run(act2, act, response[
+                                     act][act2], **response)
+                return response
             decorated_method.__name__ = method_name
             decorated_method.func_name = method_name
             setattr(cls, method_name, decorated_method)
@@ -442,15 +450,9 @@ class Client(object):
         for ent in self.model["entities"]:
             if ent != self.root:
                 entcls = Client.__call__(self, ent)
-                setattr(cls, "__" + ent, entcls)
-        for ent in self.model["entities"]:
-            if ent != self.root:
-                entcls = getattr(cls, "__" + ent)
-                setattr(cls, "__" + ent, entcls)
+                setattr(Entities, ent, entcls)
 
         return cls
-
-action_order = ["$filter","$search","$items"]
 
 
 newcls = Client("http://localhost:8000")

@@ -278,21 +278,21 @@ entities:
         private:
           action: get_private_key
           response:
-            body:
+            $body:
               $set: private
         public:
           action: get_public_key
           response:
-            body:
+            $body:
               $set: public
       methods:
         rename:
           action: edit_key
           parameters:
             new_id:
-              type: string
+              $type: string
             key:
-              type: string
+              $type: string
         set_default:
           action: set_default_key
         delete:
@@ -384,9 +384,12 @@ entities:
         - cloud
         - machine
         - public_ips
+        - info
       parameters:
         machine:
           $ref: id
+        info:
+          $ref: $body
       _properties:
          available_metrics:
             action: find_metrics
@@ -414,7 +417,7 @@ entities:
           action: probe
           parameters:
             host:
-              $ref: public_ips
+              $ref_first: public_ips
         associate_key:
           action: associate_key
         enable_monitoring:
@@ -458,7 +461,7 @@ entities:
             plugin:
               $ref: name
             host:
-              $ref: public_ips
+              $ref_first: public_ips
             read_function:
               $file: python_file
         tag:
